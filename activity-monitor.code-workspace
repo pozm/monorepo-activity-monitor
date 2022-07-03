@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"path": "desktop"
+		},
+		{
+			"path": "web\\backend"
+		},
+		{
+			"path": "web\\frontend"
+		}
+	]
+}
