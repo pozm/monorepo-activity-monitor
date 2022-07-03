@@ -26,7 +26,7 @@ export default function UserPage() {
         let dur = intervalToDuration({start:dist,end:new Date()})
         console.log(dur)
         return formatDuration(dur,{
-            format:["years","months","days","weeks","days","minutes"]
+            format:["years","months","weeks","days","hours","minutes"]
         })
     }
 
