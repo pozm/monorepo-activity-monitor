@@ -5,7 +5,7 @@
   "scripts": {
     "start": "vite",
     "dev": "vite",
-    "build": "vite build && pwsh -c 'rm -recurse -force ../backend/html/ && cp -recurse ./dist/ ../backend/html/'",
+    "build": "vite build && pwsh -c \"rm -recurse -force ../backend/html/ && cp -recurse ./dist/ ../backend/html/\"",
     "serve": "vite preview"
   },
   "license": "MIT",

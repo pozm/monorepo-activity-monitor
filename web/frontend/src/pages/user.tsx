@@ -1,4 +1,4 @@
-import { formatDuration, intervalToDuration, sub } from "date-fns";
+import { formatDistanceToNow, formatDuration, intervalToDuration, sub } from "date-fns";
 import { useParams } from "solid-app-router";
 import { createMemo, createResource, For, Match, Show, Suspense, Switch } from "solid-js";
 import { base_path } from "../../config";
@@ -29,6 +29,13 @@ export default function UserPage() {
             format:["years","months","weeks","days","hours","minutes"]
         })
     }
+    const getLastActive = (activity:Activity)=>{
+        if (activity?.active) {
+            return "Now"
+        }
+        let updated =  new Date(activity.UpdatedAt as unknown as string)
+        return `${formatDistanceToNow(updated,{addSuffix:true})} (${updated.toLocaleDateString(navigator.language,{dateStyle:"medium"})})`
+    }
 
     return (
         <div class="flex flex-col  p-20 text-gray-300">
@@ -49,6 +56,7 @@ export default function UserPage() {
                                 </h2>
                                 <p>Time Spent: <span class="text-pink-300 w-full " >{getTimeSpent(activity)}</span></p>
                                 <p>Active Now : <span class="text-pink-300" >{activity.active ? "Yes" : "No"}</span></p>
+                                <p>Last Active : <span class="text-pink-300" >{getLastActive(activity)}</span></p>
                             </div>
                         }</For>
                     </div>
