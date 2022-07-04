@@ -1,22 +1,21 @@
-use std::{path::PathBuf, sync::Arc, collections::HashMap};
+use std::{collections::HashMap, path::PathBuf};
 
 use reqwest::Client;
 use serde_json::json;
 
-use crate::{user_settings::{UserSettings, USER_SETTINGS}, OkRequest, get_name_from_loc, SEEN, SEEN_LOCAL};
+use crate::{
+    get_name_from_loc,
+    user_settings::{UserSettings, USER_SETTINGS},
+    OkRequest, SEEN, SEEN_LOCAL,
+};
 
 #[tauri::command]
-pub async fn get_data(
-) -> Result<UserSettings, String> {
-    let data = USER_SETTINGS
-        .read()
-        .or(Err("unable to open settings"))?;
+pub async fn get_data() -> Result<UserSettings, String> {
+    let data = USER_SETTINGS.read().or(Err("unable to open settings"))?;
     Ok((*data).clone())
 }
 #[tauri::command]
-pub async fn set_data(
-    new: UserSettings,
-) -> Result<(), String> {
+pub async fn set_data(new: UserSettings) -> Result<(), String> {
     new.save()?;
     let mut dat = USER_SETTINGS.write().or(Err("unable to open settings"))?;
     *dat = new;
@@ -24,12 +23,11 @@ pub async fn set_data(
 }
 
 #[tauri::command]
-pub async fn dir_exist(dir:PathBuf) -> bool {
-  dir.exists()
+pub async fn dir_exist(dir: PathBuf) -> bool {
+    dir.exists()
 }
 #[tauri::command]
-pub async fn set_api_key(mut st:String) -> Result<(),String> {
-
+pub async fn set_api_key(mut st: String) -> Result<(), String> {
     let mut apps = vec![];
     let server;
     {
@@ -39,15 +37,15 @@ pub async fn set_api_key(mut st:String) -> Result<(),String> {
     }
 
     for app in apps {
-      OkRequest!{
-        if Client::new().patch(format!("{}/app",server.address)).header("ApiKey", server.api_key.clone()).json(&json!({
-            "active": false,
-            "activity": get_name_from_loc(app.location.clone().as_str()),
-            "time": 0,
-          })).send().await.is_err() {
-              st = "".to_string();
-          }
-      }
+        OkRequest! {
+          if Client::new().patch(format!("{}/app",server.address)).header("ApiKey", server.api_key.clone()).json(&json!({
+              "active": false,
+              "activity": get_name_from_loc(app.location.clone().as_str()),
+              "time": 0,
+            })).send().await.is_err() {
+                st = "".to_string();
+            }
+        }
     }
 
     let mut dat = USER_SETTINGS.write().or(Err("unable to open settings"))?;
@@ -57,8 +55,7 @@ pub async fn set_api_key(mut st:String) -> Result<(),String> {
     Ok(())
 }
 #[tauri::command]
-pub async fn set_server_addr(mut st:String) -> Result<(),String> {
-
+pub async fn set_server_addr(mut st: String) -> Result<(), String> {
     let mut apps = vec![];
     let server;
     {
@@ -66,17 +63,17 @@ pub async fn set_server_addr(mut st:String) -> Result<(),String> {
         apps = us.read().unwrap().applications.clone();
         server = us.read().unwrap().server.clone();
     }
-    println!("{:?}",server);
+    println!("{:?}", server);
     for app in apps {
-      OkRequest!{
-        if Client::new().patch(format!("{}/app",server.address)).header("ApiKey", server.api_key.clone()).json(&json!({
-          "active": false,
-          "activity": get_name_from_loc(app.location.clone().as_str()),
-          "time": 0,
-        })).send().await.is_err() {
-            st = "".to_string();
+        OkRequest! {
+          if Client::new().patch(format!("{}/app",server.address)).header("ApiKey", server.api_key.clone()).json(&json!({
+            "active": false,
+            "activity": get_name_from_loc(app.location.clone().as_str()),
+            "time": 0,
+          })).send().await.is_err() {
+              st = "".to_string();
+          }
         }
-      }
     }
 
     let mut dat = USER_SETTINGS.write().or(Err("unable to open settings"))?;

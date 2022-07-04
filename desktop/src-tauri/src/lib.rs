@@ -1,4 +1,7 @@
-use std::{sync::{Arc, RwLock}, collections::HashMap};
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+};
 
 use chrono::NaiveDateTime;
 use user_settings::USER_SETTINGS;
@@ -17,11 +20,17 @@ macro_rules! OkRequest {
 }
 
 pub fn get_name_from_loc(loc: &str) -> String {
-let set = USER_SETTINGS.read().unwrap();
-set.applications.iter().find(|app|app.location == loc).unwrap().name.clone()
+    let set = USER_SETTINGS.read().unwrap();
+    set.applications
+        .iter()
+        .find(|app| app.location == loc)
+        .unwrap()
+        .name
+        .clone()
 }
 
 lazy_static! {
-    pub static ref SEEN : Arc<RwLock<Vec<(String,NaiveDateTime)>>> = Arc::new(RwLock::new(vec![]));
-    pub static ref SEEN_LOCAL : Arc<RwLock<HashMap<String,NaiveDateTime>>> = Arc::new(RwLock::new(HashMap::new()));
-  }
+    pub static ref SEEN: Arc<RwLock<Vec<(String, NaiveDateTime)>>> = Arc::new(RwLock::new(vec![]));
+    pub static ref SEEN_LOCAL: Arc<RwLock<HashMap<String, NaiveDateTime>>> =
+        Arc::new(RwLock::new(HashMap::new()));
+}
