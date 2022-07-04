@@ -164,7 +164,6 @@ async fn main() {
 
     app.run(|app_handle,e| match e {
     RunEvent::WindowEvent {
-      
       event: WindowEvent::CloseRequested { api, .. },
       ..
     } => {
@@ -193,10 +192,7 @@ async fn main() {
         app_handle.get_window("main").unwrap().close().unwrap();
       });
     }
-    
-    _=>{
-      
-    }
+    _=>{}
   })
 }
 
