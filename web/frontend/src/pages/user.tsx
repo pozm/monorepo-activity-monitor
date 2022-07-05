@@ -25,9 +25,10 @@ export default function UserPage() {
         let dist = sub(new Date(),{minutes:activity.minsTotal+totmins})
         let dur = intervalToDuration({start:dist,end:new Date()})
         console.log(dur)
-        return formatDuration(dur,{
+        let dur2 = formatDuration(dur,{
             format:["years","months","weeks","days","hours","minutes"]
-        })
+        });
+        return dur2.trim() == "" ? "0 minutes" : dur2;
     }
     const getLastActive = (activity:Activity)=>{
         if (activity?.active) {
