@@ -5,12 +5,14 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-contrib/static"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
+	"github.com/gorilla/websocket"
 	_ "github.com/joho/godotenv/autoload"
 	"gorm.io/gorm"
 )
@@ -26,6 +28,8 @@ func Authmw() gin.HandlerFunc {
 		// c.Next()
 	}
 }
+
+var upgrader = websocket.Upgrader{}
 
 func setupRouter() *gin.Engine {
 	// Disable Console Color
@@ -48,19 +52,64 @@ func setupRouter() *gin.Engine {
 	// db.FirstOrCreate(&tempUser, UserData{Name: "test"})
 	var tempUser2 UserData
 	db.FirstOrCreate(&tempUser2, UserData{Name: "Luna"})
+	var tempUser3 UserData
+	db.FirstOrCreate(&tempUser3, UserData{Name: "MacBookAirUser12"})
 	fmt.Printf("luna key: %s\n", tempUser2.ApiKey)
 
 	// db.Save(tempUser)
 	r.MaxMultipartMemory = 8 << 20 // 8 MiB
-
-	user := r.Group("/api/user/:name")
-
 	type PublicUserData struct {
 		gorm.Model
 		// ID         uint           `json:"id"`
 		Name       string         `json:"name"`
 		Activities []ActivityData `json:"activities" gorm:"foreignKey:UserDataID"`
 	}
+
+	type PublicUserSmallData struct {
+		gorm.Model
+		// ID         uint           `json:"id"`
+		Name       string         `json:"name"`
+		Activities []ActivityData `json:"activities" gorm:"foreignKey:UserDataID"`
+	}
+
+	r.GET("/ws", func(c *gin.Context) {
+
+		ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+		if err != nil {
+			println(err.Error())
+		}
+		defer ws.Close()
+		for {
+			type JsonWebsocketData struct {
+				Type string `json:"type"`
+				Data string `json:"data"`
+			}
+			var data JsonWebsocketData
+			err = ws.ReadJSON(&data)
+			if err != nil {
+				println(err.Error())
+				break
+			}
+		}
+
+	})
+
+	r.GET("/api/users", func(c *gin.Context) {
+		last := c.DefaultQuery("last", "0")
+		var users []PublicUserSmallData
+
+		lasti, err := strconv.Atoi(last)
+		if err != nil {
+			c.AbortWithStatusJSON(400, gin.H{"error": "last must be an integer"})
+			return
+		}
+
+		db.Preload("Activities").Model(&UserData{}).Limit(10).Where("user_data.id > (? - 1)", lasti).Find(&users)
+
+		c.JSON(http.StatusOK, users)
+	})
+
+	user := r.Group("/api/user/:name")
 
 	user.GET("/img/:activity", func(ctx *gin.Context) {
 		act := ctx.Param("activity")
@@ -109,6 +158,17 @@ func setupRouter() *gin.Engine {
 			db.Model(&ActivityData{}).Where("User_Data_ID = ? AND name = ?", ud.ID, data.Activity).Updates(map[string]interface{}{"mins_total": gorm.Expr("mins_total + floor(extract(EPOCH FROM now() - updated_at)/60)"), "active": data.Active})
 
 		}
+
+	})
+
+	r.DELETE("/api/app/:activity", Authmw(), func(c *gin.Context) {
+		var ud UserData = c.MustGet("user").(UserData)
+		act := c.Param("activity")
+		if tx := db.Delete(&ActivityData{}, "User_Data_ID = ? AND name = ?", ud.ID, act); tx.Error != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "bad request"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"success": "deleted"})
 
 	})
 
