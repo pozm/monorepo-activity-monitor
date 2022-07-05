@@ -160,6 +160,37 @@ func setupRouter() *gin.Engine {
 		}
 
 	})
+	r.PUT("/api/app", Authmw(), func(ctx *gin.Context) {
+		var ud UserData = ctx.MustGet("user").(UserData)
+		type AppForm struct {
+			Name    string                `form:"name" binding:"required"`
+			NewName string                `form:"name" binding:"required"`
+			File    *multipart.FileHeader `form:"file" binding:"-"`
+		}
+		var data AppForm
+		if err := ctx.Bind(&data); err != nil || data.Name == "" {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "bad request"})
+			return
+		}
+		locOld := fmt.Sprintf("./icons/%s%s.png", ud.Name, data.Name)
+		stripped := strings.ReplaceAll(locOld, " ", "")
+		lower := strings.ToLower(stripped)
+		locNew := fmt.Sprintf("./icons/%s%s.png", ud.Name, data.NewName)
+		stripped2 := strings.ReplaceAll(locNew, " ", "")
+		lower2 := strings.ToLower(stripped2)
+		os.Rename(lower, lower2)
+		db.Model(&ActivityData{}).Where("User_Data_ID = ? AND name = ?", ud.ID, data.Name).Updates(
+			map[string]interface{}{
+				"mins_total": gorm.Expr("mins_total + floor(extract(EPOCH FROM now() - updated_at)/60)"),
+				"active":     false,
+				"name":       data.NewName,
+			},
+		)
+		if data.File != nil {
+			ctx.SaveUploadedFile(data.File, lower2)
+		}
+		ctx.JSON(http.StatusOK, gin.H{"success": "updated"})
+	})
 
 	r.DELETE("/api/app/:activity", Authmw(), func(c *gin.Context) {
 		var ud UserData = c.MustGet("user").(UserData)
@@ -168,6 +199,8 @@ func setupRouter() *gin.Engine {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "bad request"})
 			return
 		}
+		loc := fmt.Sprintf("./icons/%s%s.png", ud.Name, act)
+		os.Remove(loc)
 		c.JSON(http.StatusOK, gin.H{"success": "deleted"})
 
 	})
