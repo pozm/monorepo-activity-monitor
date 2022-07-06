@@ -10,7 +10,7 @@ use chrono::{NaiveDateTime, Utc};
 
 use activity_manager::{
     data_handler, get_name_from_loc,
-    user_settings::{ApplicationData, USER_SETTINGS},
+    user_settings::{ApplicationData, USER_SETTINGS, UserSettings},
     OkRequest, SEEN, SEEN_LOCAL,
 };
 use reqwest::{
@@ -63,26 +63,11 @@ type SeenData = (String, NaiveDateTime);
 async fn main() {
     let tray_menu = SystemTrayMenu::new();
     {
-        let set = USER_SETTINGS.read().unwrap();
         // let mut hm = HeaderMap::new();
         // hm.insert("ApiKey", api_key.parse().unwrap());
-        let client = reqwest::Client::new();
-        for app in set.applications.clone() {
-            let mut ico = File::open(app.icon_location.as_str()).unwrap();
-            let mut icob = vec![];
-            ico.read_to_end(&mut icob).unwrap();
-            // println!("{:?}",icob);
-            let f = Form::new()
-                .text("name", app.name.clone())
-                .part("file", Part::bytes(icob).file_name("pog.png"));
-            OkRequest! {
-              if client.post(format!("{}/newApp",set.server.address)).multipart(f).header("ApiKey",set.server.api_key.clone()).send().await.is_err() {
-                USER_SETTINGS.write().unwrap().server.address = "".to_string();
-              }
-            }
-        }
+        let pog = (*USER_SETTINGS.write().unwrap()).clone();
+        pog.announce_hello().await;
 
-        set.save().unwrap();
     }
 
     let context = tauri::generate_context!();
@@ -124,7 +109,6 @@ async fn main() {
                     {
                         let us = USER_SETTINGS.clone();
                         let set = us.read().unwrap();
-                        println!("{:?}", set);
                         watch = set
                             .applications
                             .iter()
@@ -147,7 +131,7 @@ async fn main() {
                     }
 
                     let sl = SEEN_LOCAL.read().unwrap();
-                    println!("SL{:?}", sl);
+                    // println!("SL{:?}", sl);
 
                     w.emit("backend://activity-update", sl.clone()).unwrap();
 
@@ -169,26 +153,10 @@ async fn main() {
     } => {
       let app_handle = app_handle.clone();
       api.prevent_close();
-      let us = USER_SETTINGS.clone();
       tokio::spawn( async move {
 
-        let mut apps = vec![];
-        let server;
-        {
-          apps = us.read().unwrap().applications.clone();
-          server = us.read().unwrap().server.clone();
-        }
-
-        for app in apps {
-          OkRequest!{
-            Client::new().patch(format!("{}/app",server.address)).header("ApiKey", server.api_key.clone()).json(&json!({
-              "active": false,
-              "activity": get_name_from_loc(app.location.clone().as_str()),
-              "time": 0,
-            })).send().await.unwrap()
-          }
-        }
-
+        let pog = (*USER_SETTINGS.write().unwrap()).clone();
+        pog.announce_goodbye().await;
         app_handle.get_window("main").unwrap().close().unwrap();
       });
     }
@@ -198,7 +166,7 @@ async fn main() {
 
 #[tauri::command]
 async fn new_application(location: String, name: String, icon: String) -> Result<(), String> {
-    let server;
+    let pog;
     {
         let set = USER_SETTINGS.clone();
         let mut set = set.write().unwrap();
@@ -207,21 +175,20 @@ async fn new_application(location: String, name: String, icon: String) -> Result
             name: name.to_string(),
             icon_location: icon.to_string(),
         });
-
-        server = set.server.clone();
-
         set.save().unwrap();
+        pog = set.clone();
     }
+    pog.app_new(&name,&icon).await;
 
-    let mut ico = File::open(icon.as_str()).unwrap();
-    let mut icob = vec![];
-    ico.read_to_end(&mut icob).unwrap();
-    // println!("{:?}",icob);
-    let f = Form::new()
-        .text("name", name.clone())
-        .part("file", Part::bytes(icob).file_name("pog.png"));
-    OkRequest! {
-      Client::new().post(format!("{}/newApp",server.address)).multipart(f).header("ApiKey",server.api_key).send().await.unwrap()
-    }
+    // let mut ico = File::open(icon.as_str()).unwrap();
+    // let mut icob = vec![];
+    // ico.read_to_end(&mut icob).unwrap();
+    // // println!("{:?}",icob);
+    // let f = Form::new()
+    //     .text("name", name.clone())
+    //     .part("file", Part::bytes(icob).file_name("pog.png"));
+    // OkRequest! {
+    //   Client::new().post(format!("{}/newApp",server.address)).multipart(f).header("ApiKey",server.api_key).send().await.unwrap()
+    // }
     Ok(())
 }

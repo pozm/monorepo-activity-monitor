@@ -5,7 +5,7 @@ import { base_path } from "../../config";
 import { Activity, User } from "../types";
 
 const fetchUsers = async () =>
-(await fetch(`${base_path}api/user/`,{credentials:"omit",mode:"cors"})).json() as Promise<User>;
+(await fetch(`${base_path}api/users`,{credentials:"omit",mode:"cors"})).json() as Promise<User>;
 
 
 export default function UserPage() {

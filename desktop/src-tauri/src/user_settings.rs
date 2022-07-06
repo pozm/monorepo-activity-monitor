@@ -2,14 +2,19 @@ use bincode::de::read::Reader;
 use bincode::enc::write::Writer;
 
 use lazy_static::lazy_static;
+use reqwest::Client;
+use reqwest::multipart::{Form, Part};
 use serde::{Deserialize, Serialize};
 
+use serde_json::json;
 use tauri::api::path::{data_dir, local_data_dir};
 
 use std::fs::{self, create_dir_all, remove_file, File};
 use std::io::prelude::*;
 use std::sync::Arc;
 use std::{fs::OpenOptions, path::PathBuf, sync::RwLock};
+
+use crate::{OkRequest, get_name_from_loc};
 
 lazy_static! {
     pub static ref USER_SETTINGS: Arc<RwLock<UserSettings>> =
@@ -34,7 +39,6 @@ pub struct ServerSettings {
     pub address: String,
     pub api_key: String,
 }
-
 const SAVE_TO_PATH: &str = "activity-monitor/data.bin";
 
 struct FileWrapper(File);
@@ -53,6 +57,61 @@ impl Reader for FileWrapper {
 }
 
 impl UserSettings {
+
+    // server fns
+
+    pub async fn announce_hello(&self) {
+        if self.server.address.is_empty() {return}
+        let client = reqwest::Client::new();
+        for app in &self.applications.clone() {
+            let mut ico = File::open(app.icon_location.as_str()).unwrap();
+            let mut icob = vec![];
+            ico.read_to_end(&mut icob).unwrap();
+            // println!("{:?}",icob);
+            let f = Form::new()
+                .text("name", app.name.clone())
+                .part("file", Part::bytes(icob).file_name("pog.png"));
+              if client.post(format!("{}/newApp",self.server.address)).multipart(f).header("ApiKey",self.server.api_key.clone()).send().await.is_err() {
+                // self.server.address = "".to_string();
+              }
+        }
+    }
+    pub async fn announce_goodbye(&self) {
+        if self.server.address.is_empty() {return}
+        let client = Client::new();
+        for app in &self.applications {
+              if client.patch(format!("{}/app",self.server.address)).header("ApiKey", self.server.api_key.clone()).json(&json!({
+                "active": false,
+                "activity": get_name_from_loc(app.location.clone().as_str()),
+                "time": 0,
+              })).send().await.is_err() {
+                //   self.server.address = "".to_string();
+              }
+        }
+    }
+    pub async fn app_new(&self,appn:&str,loc:&str) {
+        let mut ico = File::open(loc).unwrap();
+        let mut icob = vec![];
+        ico.read_to_end(&mut icob).unwrap();
+        // println!("{:?}",icob);
+        let f = Form::new()
+            .text("name", appn.to_string())
+            .part("file", Part::bytes(icob).file_name("pog.png"));
+        if Client::new().post(format!("{}/newApp",self.server.address)).multipart(f).header("ApiKey",self.server.api_key.clone()).send().await.is_err() {
+            // self.server.address = "".to_string();
+        }
+    }
+    pub async fn app_delete(&self,appn:&str) {
+        if self.server.address.is_empty() {return}
+        if Client::new().delete(format!("{}/app/{}",self.server.address,appn)).send().await.is_err() {
+            // self.server.address = "".to_string();
+        };
+    }
+
+
+    // general data manip
+
+
     pub fn new() -> Self {
         let local_dir = local_data_dir().expect("unable to get document directory");
         fs::create_dir_all(&local_dir.join("activity-monitor"))

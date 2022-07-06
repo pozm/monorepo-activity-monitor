@@ -12,9 +12,11 @@ import (
 	"github.com/gin-contrib/static"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	_ "github.com/joho/godotenv/autoload"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 func Authmw() gin.HandlerFunc {
@@ -34,7 +36,7 @@ var upgrader = websocket.Upgrader{}
 func setupRouter() *gin.Engine {
 	// Disable Console Color
 
-	gin.SetMode(gin.ReleaseMode)
+	// gin.SetMode(gin.ReleaseMode)
 
 	// gin.DisableConsoleColor()
 	r := gin.Default()
@@ -46,7 +48,7 @@ func setupRouter() *gin.Engine {
 
 	InitDB("test.db")
 
-	db.AutoMigrate(&UserData{}, &ActivityData{})
+	db.AutoMigrate(&UserData{}, &ActivityData{}, &DeviceData{}, &DeviceActivity{})
 
 	// var tempUser UserData
 	// db.FirstOrCreate(&tempUser, UserData{Name: "test"})
@@ -94,7 +96,16 @@ func setupRouter() *gin.Engine {
 
 	})
 
-	r.GET("/api/users", func(c *gin.Context) {
+	api := r.Group("/api")
+
+	user := api.Group("/user")
+
+	app := api.Group("/app", Authmw())
+
+	dvc := api.Group("/device", Authmw())
+
+	// get many users
+	user.GET("/", func(c *gin.Context) {
 		last := c.DefaultQuery("last", "0")
 		var users []PublicUserSmallData
 
@@ -108,26 +119,14 @@ func setupRouter() *gin.Engine {
 
 		c.JSON(http.StatusOK, users)
 	})
-
-	user := r.Group("/api/user/:name")
-
-	user.GET("/img/:activity", func(ctx *gin.Context) {
-		act := ctx.Param("activity")
-		name := ctx.Param("name")
-		loc := fmt.Sprintf("./icons/%s%s.png", name, act)
-		stripped := strings.ReplaceAll(loc, " ", "")
-		lower := strings.ToLower(stripped)
-		fmt.Printf("searching for %s\n", lower)
-		ctx.File(lower)
-	})
-
-	user.GET("/", func(c *gin.Context) {
+	// user data
+	user.GET("/:name", func(c *gin.Context) {
 
 		name := c.Param("name")
 
 		var user PublicUserData
 
-		db.Preload("Activities").Model(&UserData{}).First(&user, "UPPER(\"user_data\".\"name\") = UPPER(?)", name)
+		db.Preload("Activities").Preload("Activities.Devices").Model(&UserData{}).First(&user, "UPPER(\"user_data\".\"name\") = UPPER(?)", name)
 
 		if user.Name == "" {
 
@@ -138,12 +137,29 @@ func setupRouter() *gin.Engine {
 		c.JSON(http.StatusOK, user)
 
 	})
+	// user image
+	user.GET("/:name/img/", func(ctx *gin.Context) {
+		name := ctx.Param("name")
+		ctx.File(fmt.Sprintf("./icons/users/%s.png", name))
+	})
+	// activity image
+	user.GET("/:name/img/:activity", func(ctx *gin.Context) {
+		act := ctx.Param("activity")
+		name := ctx.Param("name")
+		loc := fmt.Sprintf("./icons/%s%s.png", name, act)
+		stripped := strings.ReplaceAll(loc, " ", "")
+		lower := strings.ToLower(stripped)
+		fmt.Printf("searching for %s\n", lower)
+		ctx.File(lower)
+	})
 
-	r.PATCH("/api/app", Authmw(), func(ctx *gin.Context) {
+	// update activity
+	app.PATCH("/", func(ctx *gin.Context) {
 		var ud UserData = ctx.MustGet("user").(UserData)
 		type IncomingData struct {
 			Active   bool   `json:"active"`
 			Activity string `json:"activity"`
+			DeviceId string `json:"dID"`
 			Time     uint64 `json:"time"`
 		}
 		var data IncomingData
@@ -151,16 +167,24 @@ func setupRouter() *gin.Engine {
 			ctx.JSON(http.StatusBadRequest, gin.H{"error": "bad request"})
 			return
 		}
-		fmt.Printf("%+v\n", data)
+
+		var act ActivityData
+
+		db.Model(&ActivityData{}).Where("User_Data_ID = ? AND name = ?", ud.ID, data.Activity).First(&act)
+
 		if data.Active {
-			db.Model(&ActivityData{}).Where("User_Data_ID = ? AND name = ?", ud.ID, data.Activity).Updates(map[string]interface{}{"mins_total": gorm.Expr("mins_total + ?", data.Time), "active": data.Active})
+			db.Model(&DeviceActivity{}).Where("device_data_id = ? AND active = false and activity_data_id = ?", data.DeviceId, act.ID).Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "device_data_id"}, {Name: "activity_data_id"}},
+				DoUpdates: clause.Assignments(map[string]interface{}{"mins_total": gorm.Expr("device_activities.mins_total + ?", data.Time), "active": data.Active}),
+			}).Create(&DeviceActivity{DeviceDataID: uuid.MustParse(data.DeviceId), ActivityDataID: act.ID, Active: data.Active, MinsTotal: data.Time})
 		} else {
-			db.Model(&ActivityData{}).Where("User_Data_ID = ? AND name = ?", ud.ID, data.Activity).Updates(map[string]interface{}{"mins_total": gorm.Expr("mins_total + floor(extract(EPOCH FROM now() - updated_at)/60)"), "active": data.Active})
+			db.Model(&DeviceActivity{}).Where("device_data_id = ? AND activity_data_id = ?", data.DeviceId, act.ID).Updates(map[string]interface{}{"mins_total": gorm.Expr("mins_total + floor(extract(EPOCH FROM now() - updated_at)/60)"), "active": data.Active})
 
 		}
 
 	})
-	r.PUT("/api/app", Authmw(), func(ctx *gin.Context) {
+	// edit activity
+	app.PUT("/", func(ctx *gin.Context) {
 		var ud UserData = ctx.MustGet("user").(UserData)
 		type AppForm struct {
 			Name    string                `form:"name" binding:"required"`
@@ -191,8 +215,8 @@ func setupRouter() *gin.Engine {
 		}
 		ctx.JSON(http.StatusOK, gin.H{"success": "updated"})
 	})
-
-	r.DELETE("/api/app/:activity", Authmw(), func(c *gin.Context) {
+	// delete activity
+	app.DELETE("/:activity", func(c *gin.Context) {
 		var ud UserData = c.MustGet("user").(UserData)
 		act := c.Param("activity")
 		if tx := db.Delete(&ActivityData{}, "User_Data_ID = ? AND name = ?", ud.ID, act); tx.Error != nil {
@@ -204,8 +228,8 @@ func setupRouter() *gin.Engine {
 		c.JSON(http.StatusOK, gin.H{"success": "deleted"})
 
 	})
-
-	r.POST("/api/newApp", Authmw(), func(c *gin.Context) {
+	// create activity
+	app.POST("/new", func(c *gin.Context) {
 
 		type AppForm struct {
 			Name string                `form:"name" binding:"required"`
@@ -233,12 +257,28 @@ func setupRouter() *gin.Engine {
 		stripped := strings.ReplaceAll(loc, " ", "")
 		lower := strings.ToLower(stripped)
 		c.SaveUploadedFile(newApp.File, lower)
-		out := db.Model(&u).Association("Activities").Append(&ActivityData{Name: newApp.Name, MinsTotal: 0})
+		out := db.Model(&u).Association("Activities").Append(&ActivityData{Name: newApp.Name})
 		fmt.Printf("%+v\n save to %s\n", out, lower)
+	})
+	// get all devices
+	dvc.GET("/", func(c *gin.Context) {
+		var ud UserData = c.MustGet("user").(UserData)
+		var d []DeviceData
+		db.Model(&DeviceData{}).Where("User_Data_ID = ?", ud.ID).Find(&d)
+		c.JSON(http.StatusOK, d)
+	})
+	// create device
+	dvc.POST("/new", func(c *gin.Context) {
+		var ud UserData = c.MustGet("user").(UserData)
+		deviceName := c.DefaultQuery("name", "Device")
+		d := DeviceData{UserDataID: ud.ID, Name: deviceName}
+		db.Create(&d)
+		c.JSON(http.StatusOK, d)
 	})
 
 	r.Use(static.Serve("/", static.LocalFile("./html", false)))
 	r.NoRoute(func(ctx *gin.Context) {
+		ctx.Header("xurl", ctx.Request.URL.Path)
 		ctx.File("./html/index.html")
 	})
 	return r
