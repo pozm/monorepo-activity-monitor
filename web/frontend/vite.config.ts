@@ -16,6 +16,7 @@ export default defineConfig({
 				changeOrigin:true,
 				secure:false,
 				ws:true,
+				// headers:{pog : () => ""},
        		 	rewrite: (p) => p.slice(4)
 			}
 		}

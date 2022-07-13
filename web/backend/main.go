@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-contrib/static"
@@ -15,8 +16,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	_ "github.com/joho/godotenv/autoload"
+	lop "github.com/samber/lo/parallel"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 func Authmw() gin.HandlerFunc {
@@ -59,7 +60,7 @@ func setupRouter() *gin.Engine {
 	fmt.Printf("luna key: %s\n", tempUser2.ApiKey)
 
 	// db.Save(tempUser)
-	r.MaxMultipartMemory = 8 << 20 // 8 MiB
+	r.MaxMultipartMemory = 8 << 20 // 8 MiB // stop allowing larger images for etc
 	type PublicUserData struct {
 		gorm.Model
 		// ID         uint           `json:"id"`
@@ -124,19 +125,80 @@ func setupRouter() *gin.Engine {
 
 		name := c.Param("name")
 
-		var user PublicUserData
+		type ScanRes struct {
+			Act      uint
+			DaID     int
+			Ddi      uuid.UUID
+			Mins     int
+			UserName string
+			ActName  string
+			Dau      time.Time
+			Dac      time.Time
+			active   bool
+		}
+		var resultScan []ScanRes
 
-		db.Preload("Activities").Preload("Activities.Devices").Model(&UserData{}).First(&user, "UPPER(\"user_data\".\"name\") = UPPER(?)", name)
+		db.Raw(`select ad.id as act, coalesce(da.id, -1) as da_id, da.device_data_id ddi, coalesce(da.mins_total, 0) as mins, ud.name as user_name, ad.name as act_name, da.updated_at as dau, da.created_at as dac, da.active active from user_data ud
+        inner join activity_data ad on ud.id = ad.user_data_id
+        left outer join device_activities da on ad.id = da.activity_data_id
+where lower(ud.name) = ?`, name).Scan(&resultScan)
 
-		if user.Name == "" {
+		var deviceData []DeviceData
+
+		db.Select("name", "device_id").Where("device_id in ?", lop.Map(resultScan, func(res ScanRes, _ int) uuid.UUID {
+			return res.Ddi
+		})).Find(&deviceData)
+
+		fmt.Printf("%+v\n", deviceData)
+
+		// db.Preload("Activities").Preload("Activities.Devices").Joins("Device_Data","DeviceId = ?",).Model(&UserData{}).First(&user, "UPPER(\"user_data\".\"name\") = UPPER(?)", name)
+		type PublicActData struct {
+			ActivityId uint        `json:"activity_id"`
+			Devices    []uuid.UUID `json:"devices"`
+			MinsTotal  int         `json:"mins_total"`
+			UpdatedAt  time.Time   `json:"updated_at"`
+			CreatedAt  time.Time   `json:"created_at"`
+			Active     bool        `json:"active"`
+		}
+		type PublicData struct {
+			Name       string                   `json:"name"`
+			Activities map[string]PublicActData `json:"activities"`
+			Devices    []DeviceData             `json:"devices"`
+		}
+
+		var publicData PublicData = PublicData{Name: resultScan[0].UserName, Devices: deviceData, Activities: make(map[string]PublicActData)}
+		for _, act := range resultScan {
+			existing, ok := publicData.Activities[act.ActName]
+			if ok {
+
+				existing.Devices = append(existing.Devices, act.Ddi)
+				publicData.Activities[act.ActName] = existing
+				fmt.Printf("%+v\n", existing)
+				continue
+			}
+			if act.DaID == -1 {
+				publicData.Activities[act.ActName] = PublicActData{ActivityId: act.Act, MinsTotal: act.Mins, UpdatedAt: act.Dac, CreatedAt: act.Dau, Active: act.active}
+				continue
+			}
+			publicData.Activities[act.ActName] = PublicActData{ActivityId: act.Act, MinsTotal: act.Mins, UpdatedAt: act.Dac, CreatedAt: act.Dau, Active: act.active, Devices: []uuid.UUID{act.Ddi}}
+		}
+
+		if len(resultScan) == 0 {
 
 			c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
 			return
 		}
 
-		c.JSON(http.StatusOK, user)
+		c.JSON(http.StatusOK, publicData)
 
 	})
+
+	/* select mins_total, dd.name as device_name, ad.name as activity_name, ud.name as user_name, ud.id as user_id from device_activities
+	    inner join activity_data ad on ad.id = device_activities.activity_data_id
+	    inner join device_data dd on dd.device_id = device_activities.device_data_id::uuid
+	    inner join user_data ud on ud.id = dd.user_data_id
+	where lower(dd.name) = lower(?) and lower(ad.name) = lower(?) and ud.id = ? */
+
 	// user image
 	user.GET("/:name/img/", func(ctx *gin.Context) {
 		name := ctx.Param("name")
@@ -157,29 +219,51 @@ func setupRouter() *gin.Engine {
 	app.PATCH("/", func(ctx *gin.Context) {
 		var ud UserData = ctx.MustGet("user").(UserData)
 		type IncomingData struct {
-			Active   bool   `json:"active"`
-			Activity string `json:"activity"`
-			DeviceId string `json:"dID"`
-			Time     uint64 `json:"time"`
+			Active     bool   `json:"active"`
+			Activity   string `json:"activity"`
+			DeviceName string `json:"dName"`
+			Time       uint64 `json:"time"`
 		}
 		var data IncomingData
 		if err := ctx.Bind(&data); err != nil || data.Activity == "" {
 			ctx.JSON(http.StatusBadRequest, gin.H{"error": "bad request"})
 			return
 		}
+		type ScanRes struct {
+			Act uint
+			Dev uuid.UUID
+			Da  int
+		}
+		var resultScan ScanRes
 
-		var act ActivityData
+		db.Raw(`select ad.id as act, dd.device_id as dev, coalesce(da.id, -1) as da from user_data ud
+		inner join activity_data ad on ud.id = ad.user_data_id
+		inner join device_data dd on ud.id = dd.user_data_id
+		left outer join device_activities da on ad.id = da.activity_data_id and da.device_data_id = dd.device_id::text
+	where lower(dd.name) = lower(?) and lower(ad.name) = lower(?) and ud.id = ?`, data.DeviceName, data.Activity, ud.ID).Scan(&resultScan)
 
-		db.Model(&ActivityData{}).Where("User_Data_ID = ? AND name = ?", ud.ID, data.Activity).First(&act)
-
-		if data.Active {
-			db.Model(&DeviceActivity{}).Where("device_data_id = ? AND active = false and activity_data_id = ?", data.DeviceId, act.ID).Clauses(clause.OnConflict{
-				Columns:   []clause.Column{{Name: "device_data_id"}, {Name: "activity_data_id"}},
-				DoUpdates: clause.Assignments(map[string]interface{}{"mins_total": gorm.Expr("device_activities.mins_total + ?", data.Time), "active": data.Active}),
-			}).Create(&DeviceActivity{DeviceDataID: uuid.MustParse(data.DeviceId), ActivityDataID: act.ID, Active: data.Active, MinsTotal: data.Time})
+		// db.Model(&ActivityData{}).Where("User_Data_ID = ? AND name  = ?", ud.ID, data.Activity).First(&act)
+		fmt.Printf("%+v\n", resultScan)
+		if resultScan.Act == 0 {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "activity not found"})
+			return
+		}
+		if resultScan.Da == -1 {
+			db.Model(&DeviceActivity{}).Create(&DeviceActivity{ActivityDataID: resultScan.Act, DeviceDataID: resultScan.Dev, Active: data.Active, MinsTotal: data.Time})
 		} else {
-			db.Model(&DeviceActivity{}).Where("device_data_id = ? AND activity_data_id = ?", data.DeviceId, act.ID).Updates(map[string]interface{}{"mins_total": gorm.Expr("mins_total + floor(extract(EPOCH FROM now() - updated_at)/60)"), "active": data.Active})
+			if data.Active {
+				db.Model(&DeviceActivity{}).Where("device_data_name = ? AND active = false and activity_data_id = ?", resultScan.Dev, resultScan.Act).Updates(map[string]interface{}{
+					"mins_total": gorm.Expr("device_activities.mins_total + ?", data.Time),
+					"active":     data.Active,
+				})
 
+			} else {
+				db.Model(&DeviceActivity{}).Where("device_data_id = ? AND activity_data_id = ?", resultScan.Dev, resultScan.Act).Updates(map[string]interface{}{
+					"mins_total": gorm.Expr("mins_total + floor(extract(EPOCH FROM now() - updated_at)/60)"),
+					"active":     data.Active,
+				})
+
+			}
 		}
 
 	})
@@ -279,6 +363,7 @@ func setupRouter() *gin.Engine {
 	r.Use(static.Serve("/", static.LocalFile("./html", false)))
 	r.NoRoute(func(ctx *gin.Context) {
 		ctx.Header("xurl", ctx.Request.URL.Path)
+		println(ctx.Request.URL.Path)
 		ctx.File("./html/index.html")
 	})
 	return r

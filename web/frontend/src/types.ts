@@ -7,16 +7,27 @@ export interface DefaultModel {
 
 }
 
-export interface Activity extends DefaultModel {
-    UserDataID: number;
-    name: string;
-    minsTotal: number;
+export interface Activity {
+    activity_id: number;
+    devices?: string[];
+    mins_total: number;
+    updated_at: Date;
+    created_at: Date;
     active: boolean;
 }
 
-export interface User extends DefaultModel {
+export interface User {
     name: string;
-    activities: Activity[];
+    activities: {[x:string]:Activity};
+    devices: Device[]
 }
 
-
+export interface Device {
+    ID: number;
+    CreatedAt: Date;
+    UpdatedAt: Date;
+    DeletedAt?: any;
+    UserDataID: number;
+    name: string;
+    deviceId: string;
+}
