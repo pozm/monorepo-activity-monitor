@@ -60,7 +60,7 @@ export default function UserPage() {
                                 <p>Last Active : <span class="text-pink-300" >{getLastActive(activity)}</span></p>
                                 <div class="flex flex-wrap space-x-2" >
                                     <p>Devices :</p> <li class="flex list-none">
-                                        <For each={user()?.devices.filter(v=>activity.devices?.includes(v.deviceId))}>{d=><li class="comma"><Link class="text-pink-300" href={`./d/${d.name}`} >{d.name}</Link></li>}</For>
+                                        <For each={user()?.devices.filter(v=>activity.devices[v.deviceId] != null)}>{d=><li class="comma"><Link class="text-pink-300" href={`./d/${d.name}`} >{d.name}</Link></li>}</For>
                                     </li>
                                     
                                 </div>

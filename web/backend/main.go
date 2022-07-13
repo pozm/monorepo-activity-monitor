@@ -143,22 +143,27 @@ func setupRouter() *gin.Engine {
         left outer join device_activities da on ad.id = da.activity_data_id
 where lower(ud.name) = ?`, name).Scan(&resultScan)
 
+		if len(resultScan) == 0 {
+
+			c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+			return
+		}
+
 		var deviceData []DeviceData
 
-		db.Select("name", "device_id").Where("device_id in ?", lop.Map(resultScan, func(res ScanRes, _ int) uuid.UUID {
+		db.Where("device_id in ?", lop.Map(resultScan, func(res ScanRes, _ int) uuid.UUID {
 			return res.Ddi
 		})).Find(&deviceData)
 
-		fmt.Printf("%+v\n", deviceData)
-
 		// db.Preload("Activities").Preload("Activities.Devices").Joins("Device_Data","DeviceId = ?",).Model(&UserData{}).First(&user, "UPPER(\"user_data\".\"name\") = UPPER(?)", name)
+
 		type PublicActData struct {
-			ActivityId uint        `json:"activity_id"`
-			Devices    []uuid.UUID `json:"devices"`
-			MinsTotal  int         `json:"mins_total"`
-			UpdatedAt  time.Time   `json:"updated_at"`
-			CreatedAt  time.Time   `json:"created_at"`
-			Active     bool        `json:"active"`
+			ActivityId uint              `json:"activity_id"`
+			Devices    map[uuid.UUID]int `json:"devices"`
+			MinsTotal  int               `json:"mins_total"`
+			UpdatedAt  time.Time         `json:"updated_at"`
+			CreatedAt  time.Time         `json:"created_at"`
+			Active     bool              `json:"active"`
 		}
 		type PublicData struct {
 			Name       string                   `json:"name"`
@@ -171,22 +176,19 @@ where lower(ud.name) = ?`, name).Scan(&resultScan)
 			existing, ok := publicData.Activities[act.ActName]
 			if ok {
 
-				existing.Devices = append(existing.Devices, act.Ddi)
+				existing.Devices[act.Ddi] = act.Mins
+				existing.MinsTotal += act.Mins
+				if existing.UpdatedAt.Before(act.Dau) {
+					existing.UpdatedAt = act.Dau
+				}
 				publicData.Activities[act.ActName] = existing
-				fmt.Printf("%+v\n", existing)
 				continue
 			}
 			if act.DaID == -1 {
-				publicData.Activities[act.ActName] = PublicActData{ActivityId: act.Act, MinsTotal: act.Mins, UpdatedAt: act.Dac, CreatedAt: act.Dau, Active: act.active}
+				publicData.Activities[act.ActName] = PublicActData{ActivityId: act.Act, MinsTotal: act.Mins, UpdatedAt: act.Dac, CreatedAt: act.Dau, Active: act.active, Devices: make(map[uuid.UUID]int)}
 				continue
 			}
-			publicData.Activities[act.ActName] = PublicActData{ActivityId: act.Act, MinsTotal: act.Mins, UpdatedAt: act.Dac, CreatedAt: act.Dau, Active: act.active, Devices: []uuid.UUID{act.Ddi}}
-		}
-
-		if len(resultScan) == 0 {
-
-			c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
-			return
+			publicData.Activities[act.ActName] = PublicActData{ActivityId: act.Act, MinsTotal: act.Mins, UpdatedAt: act.Dac, CreatedAt: act.Dau, Active: act.active, Devices: map[uuid.UUID]int{act.Ddi: act.Mins}}
 		}
 
 		c.JSON(http.StatusOK, publicData)
@@ -252,7 +254,7 @@ where lower(ud.name) = ?`, name).Scan(&resultScan)
 			db.Model(&DeviceActivity{}).Create(&DeviceActivity{ActivityDataID: resultScan.Act, DeviceDataID: resultScan.Dev, Active: data.Active, MinsTotal: data.Time})
 		} else {
 			if data.Active {
-				db.Model(&DeviceActivity{}).Where("device_data_name = ? AND active = false and activity_data_id = ?", resultScan.Dev, resultScan.Act).Updates(map[string]interface{}{
+				db.Model(&DeviceActivity{}).Where("device_data_id = ? AND active = false and activity_data_id = ?", resultScan.Dev, resultScan.Act).Updates(map[string]interface{}{
 					"mins_total": gorm.Expr("device_activities.mins_total + ?", data.Time),
 					"active":     data.Active,
 				})

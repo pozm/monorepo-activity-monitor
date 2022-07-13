@@ -9,7 +9,7 @@ export interface DefaultModel {
 
 export interface Activity {
     activity_id: number;
-    devices?: string[];
+    devices: {[x:string]:number};
     mins_total: number;
     updated_at: Date;
     created_at: Date;
