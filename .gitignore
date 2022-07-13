@@ -23,3 +23,5 @@ web/frontend/config.ts
 web/frontend/config.ts
 # hello???
 web/backend/icons/
+**/*/dist
+web/backend/dist
