@@ -14,7 +14,7 @@ use std::io::prelude::*;
 use std::sync::Arc;
 use std::{fs::OpenOptions, path::PathBuf, sync::RwLock};
 
-use crate::{OkRequest, get_name_from_loc};
+use crate::{OkRequest, get_name_from_loc, HOSTNAME_};
 
 lazy_static! {
     pub static ref USER_SETTINGS: Arc<RwLock<UserSettings>> =
@@ -23,7 +23,6 @@ lazy_static! {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct UserSettings {
-    pub applications: Vec<ApplicationData>,
     pub server: ServerSettings,
 }
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -38,7 +37,11 @@ pub struct ApplicationData {
 pub struct ServerSettings {
     pub address: String,
     pub api_key: String,
+    pub applications: Vec<ApplicationData>,
 }
+#[cfg(debug_assertions)]
+const SAVE_TO_PATH: &str = "activity-monitor/data-dev.bin";
+#[cfg(not(debug_assertions))]
 const SAVE_TO_PATH: &str = "activity-monitor/data.bin";
 
 struct FileWrapper(File);
@@ -63,7 +66,7 @@ impl UserSettings {
     pub async fn announce_hello(&self) {
         if self.server.address.is_empty() {return}
         let client = reqwest::Client::new();
-        for app in &self.applications.clone() {
+        for app in &self.server.applications.clone() {
             let mut ico = File::open(app.icon_location.as_str()).unwrap();
             let mut icob = vec![];
             ico.read_to_end(&mut icob).unwrap();
@@ -71,7 +74,7 @@ impl UserSettings {
             let f = Form::new()
                 .text("name", app.name.clone())
                 .part("file", Part::bytes(icob).file_name("pog.png"));
-              if client.post(format!("{}/newApp",self.server.address)).multipart(f).header("ApiKey",self.server.api_key.clone()).send().await.is_err() {
+              if client.post(format!("{}/app/new",self.server.address)).multipart(f).header("ApiKey",self.server.api_key.clone()).send().await.is_err() {
                 // self.server.address = "".to_string();
               }
         }
@@ -79,11 +82,12 @@ impl UserSettings {
     pub async fn announce_goodbye(&self) {
         if self.server.address.is_empty() {return}
         let client = Client::new();
-        for app in &self.applications {
+        for app in &self.server.applications {
               if client.patch(format!("{}/app",self.server.address)).header("ApiKey", self.server.api_key.clone()).json(&json!({
                 "active": false,
                 "activity": get_name_from_loc(app.location.clone().as_str()),
                 "time": 0,
+                "dName": HOSTNAME_.lock().unwrap().clone()
               })).send().await.is_err() {
                 //   self.server.address = "".to_string();
               }
@@ -97,7 +101,7 @@ impl UserSettings {
         let f = Form::new()
             .text("name", appn.to_string())
             .part("file", Part::bytes(icob).file_name("pog.png"));
-        if Client::new().post(format!("{}/newApp",self.server.address)).multipart(f).header("ApiKey",self.server.api_key.clone()).send().await.is_err() {
+        if Client::new().post(format!("{}/app/new",self.server.address)).multipart(f).header("ApiKey",self.server.api_key.clone()).send().await.is_err() {
             // self.server.address = "".to_string();
         }
     }
@@ -117,10 +121,10 @@ impl UserSettings {
         fs::create_dir_all(&local_dir.join("activity-monitor"))
             .expect("failed to create launcher directory");
         Self {
-            applications: vec![],
             server: ServerSettings {
                 address: "".to_string(),
                 api_key: "".to_string(),
+                applications: vec![],
             },
         }
     }

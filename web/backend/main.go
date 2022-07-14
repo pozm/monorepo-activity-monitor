@@ -18,6 +18,7 @@ import (
 	_ "github.com/joho/godotenv/autoload"
 	lop "github.com/samber/lo/parallel"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 func Authmw() gin.HandlerFunc {
@@ -134,7 +135,7 @@ func setupRouter() *gin.Engine {
 			ActName  string
 			Dau      time.Time
 			Dac      time.Time
-			active   bool
+			Active   bool
 		}
 		var resultScan []ScanRes
 
@@ -173,9 +174,12 @@ where lower(ud.name) = ?`, name).Scan(&resultScan)
 
 		var publicData PublicData = PublicData{Name: resultScan[0].UserName, Devices: deviceData, Activities: make(map[string]PublicActData)}
 		for _, act := range resultScan {
+			// fmt.Printf("activity : %#v\n\n", act)
 			existing, ok := publicData.Activities[act.ActName]
 			if ok {
-
+				if !existing.Active && act.Active {
+					existing.Active = true
+				}
 				existing.Devices[act.Ddi] = act.Mins
 				existing.MinsTotal += act.Mins
 				if existing.UpdatedAt.Before(act.Dau) {
@@ -185,10 +189,10 @@ where lower(ud.name) = ?`, name).Scan(&resultScan)
 				continue
 			}
 			if act.DaID == -1 {
-				publicData.Activities[act.ActName] = PublicActData{ActivityId: act.Act, MinsTotal: act.Mins, UpdatedAt: act.Dac, CreatedAt: act.Dau, Active: act.active, Devices: make(map[uuid.UUID]int)}
+				publicData.Activities[act.ActName] = PublicActData{ActivityId: act.Act, MinsTotal: act.Mins, UpdatedAt: act.Dac, CreatedAt: act.Dau, Active: act.Active, Devices: make(map[uuid.UUID]int)}
 				continue
 			}
-			publicData.Activities[act.ActName] = PublicActData{ActivityId: act.Act, MinsTotal: act.Mins, UpdatedAt: act.Dac, CreatedAt: act.Dau, Active: act.active, Devices: map[uuid.UUID]int{act.Ddi: act.Mins}}
+			publicData.Activities[act.ActName] = PublicActData{ActivityId: act.Act, MinsTotal: act.Mins, UpdatedAt: act.Dac, CreatedAt: act.Dau, Active: act.Active, Devices: map[uuid.UUID]int{act.Ddi: act.Mins}}
 		}
 
 		c.JSON(http.StatusOK, publicData)
@@ -357,8 +361,15 @@ where lower(ud.name) = ?`, name).Scan(&resultScan)
 	dvc.POST("/new", func(c *gin.Context) {
 		var ud UserData = c.MustGet("user").(UserData)
 		deviceName := c.DefaultQuery("name", "Device")
-		d := DeviceData{UserDataID: ud.ID, Name: deviceName}
-		db.Create(&d)
+		d := DeviceData{UserDataID: ud.ID, Name: deviceName, UniqueName: fmt.Sprintf("%d-%s", ud.ID, deviceName)}
+		db.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "unique_name"}},
+			DoNothing: true,
+		}).Create(&d)
+		if d.ID == 0 {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "already exists"})
+			return
+		}
 		c.JSON(http.StatusOK, d)
 	})
 

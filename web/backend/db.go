@@ -51,6 +51,7 @@ type DeviceData struct {
 	gorm.Model
 	UserDataID uint
 	Name       string    `json:"name" binding:"required"`
+	UniqueName string    `json:"unique_name" binding:"required" gorm:"unique"`
 	DeviceId   uuid.UUID `json:"deviceId" binding:"required" gorm:"type:uuid;default:uuid_generate_v4();primaryKey"`
 }
 type DeviceActivity struct {

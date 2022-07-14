@@ -84,7 +84,7 @@ import type { IDataStoreTypes } from './lib/DataTypes';
 		console.log("make_application",newappn,newappp,newappi);
 		invoke("new_application",{name:newappn,icon:newappi,location:newappp}).then(async v=>{
 			await Data.Store.get.reload();
-			Applications.set(Data.Store.get.data.applications);
+			Applications.set(Data.Store.get.data.server.applications);
 		})
 		newappi="";
 		newappn="";

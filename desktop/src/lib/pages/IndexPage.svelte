@@ -105,7 +105,7 @@ import { convertFileSrc } from "@tauri-apps/api/tauri";
 		// 	);
 		// }
 
-		Applications.set(Data.Store.get.data.applications);
+		Applications.set(Data.Store.get.data.server.applications);
 
 		Data.Store.get.write()
 	});

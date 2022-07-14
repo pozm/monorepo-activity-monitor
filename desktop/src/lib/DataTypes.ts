@@ -7,13 +7,13 @@ export interface IClientNotification {
 
 
 export interface IDataStoreTypes {
-	applications : IApplication[],
     server:IServerSettings
 }
 
 export interface IServerSettings {
     address:string,
     api_key:string
+    applications : IApplication[],
 }
 
 export interface IApplication {

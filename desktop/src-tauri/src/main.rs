@@ -3,7 +3,7 @@
     windows_subsystem = "windows"
 )]
 
-use std::{collections::HashSet, fs::File, io::Read, thread, time::Duration};
+use std::{collections::HashSet, fs::File, io::Read, thread, time::Duration, ffi::OsString, str::FromStr, sync::Mutex};
 
 use activity::*;
 use chrono::{NaiveDateTime, Utc};
@@ -11,7 +11,7 @@ use chrono::{NaiveDateTime, Utc};
 use activity_manager::{
     data_handler, get_name_from_loc,
     user_settings::{ApplicationData, USER_SETTINGS, UserSettings},
-    OkRequest, SEEN, SEEN_LOCAL,
+    OkRequest, SEEN, SEEN_LOCAL, HOSTNAME_
 };
 use reqwest::{
     multipart::{Form, Part},
@@ -33,6 +33,7 @@ async fn upon_watch_end(new: (String, NaiveDateTime)) {
           "active": false,
           "activity": get_name_from_loc(&new.0),
           "time": diff.as_secs()/60,
+          "dName": HOSTNAME_.lock().unwrap().clone()
         })).send().await.unwrap()
     }
 
@@ -54,6 +55,7 @@ async fn upon_watch_start(new: (String, NaiveDateTime)) {
         "active": true,
         "activity": get_name_from_loc(&new.0),
         "time": diff.as_secs()/60,
+        "dName": HOSTNAME_.lock().unwrap().clone()
       })).send().await.unwrap()
     }
 }
@@ -102,6 +104,20 @@ async fn main() {
         .setup(|a| {
             let w = a.get_window("main").unwrap();
             tokio::spawn(async move {
+                { // register device
+
+                    let server;
+                    {
+                        server = USER_SETTINGS.read().unwrap().server.clone();
+                    }
+
+                    OkRequest! {
+                        if Client::new().post(format!("{}/device/new?name={}",server.address.clone(),HOSTNAME_.lock().unwrap().clone())).header("ApiKey",server.api_key.clone()).send().await.is_err() {
+                            //   st = "".to_string();
+                            println!("current is bricked.")
+                        }
+                    }
+                }
                 loop {
                     let old: HashSet<SeenData> =
                         HashSet::from_iter(SEEN.read().unwrap().iter().cloned());
@@ -110,7 +126,7 @@ async fn main() {
                         let us = USER_SETTINGS.clone();
                         let set = us.read().unwrap();
                         watch = set
-                            .applications
+                            .server.applications
                             .iter()
                             .map(|x| x.location.clone())
                             .collect::<Vec<_>>();
@@ -170,7 +186,7 @@ async fn new_application(location: String, name: String, icon: String) -> Result
     {
         let set = USER_SETTINGS.clone();
         let mut set = set.write().unwrap();
-        set.applications.push(ApplicationData {
+        set.server.applications.push(ApplicationData {
             location: location.to_string(),
             name: name.to_string(),
             icon_location: icon.to_string(),

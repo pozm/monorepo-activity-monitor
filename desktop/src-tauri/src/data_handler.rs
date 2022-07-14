@@ -1,7 +1,8 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::{collections::HashMap, path::PathBuf, sync::{RwLock, RwLockWriteGuard}, ffi::OsString, str::FromStr};
 
 use reqwest::Client;
 use serde_json::json;
+use crate::HOSTNAME_;
 
 use crate::{
     get_name_from_loc,
@@ -28,20 +29,19 @@ pub async fn dir_exist(dir: PathBuf) -> bool {
 }
 #[tauri::command]
 pub async fn set_api_key(mut st: String) -> Result<(), String> {
-    let mut apps = vec![];
     let server;
     {
         let us = USER_SETTINGS.clone();
-        apps = us.read().unwrap().applications.clone();
         server = us.read().unwrap().server.clone();
     }
 
-    for app in apps {
+    for app in &server.applications {
         OkRequest! {
           if Client::new().patch(format!("{}/app",server.address)).header("ApiKey", server.api_key.clone()).json(&json!({
               "active": false,
               "activity": get_name_from_loc(app.location.clone().as_str()),
               "time": 0,
+              "dName":HOSTNAME_.lock().unwrap().clone()
             })).send().await.is_err() {
                 st = "".to_string();
             }
@@ -50,34 +50,53 @@ pub async fn set_api_key(mut st: String) -> Result<(), String> {
 
     let mut dat = USER_SETTINGS.write().or(Err("unable to open settings"))?;
     (*dat).server.api_key = st.clone();
+    (*dat).save();
     *SEEN.write().unwrap() = vec![];
     *SEEN_LOCAL.write().unwrap() = HashMap::new();
     Ok(())
 }
 #[tauri::command]
 pub async fn set_server_addr(mut st: String) -> Result<(), String> {
-    let mut apps = vec![];
     let server;
     {
         let us = USER_SETTINGS.clone();
-        apps = us.read().unwrap().applications.clone();
         server = us.read().unwrap().server.clone();
     }
     println!("{:?}", server);
-    for app in apps {
+    for app in &server.applications {
         OkRequest! {
           if Client::new().patch(format!("{}/app",server.address)).header("ApiKey", server.api_key.clone()).json(&json!({
             "active": false,
             "activity": get_name_from_loc(app.location.clone().as_str()),
             "time": 0,
+            "dName":HOSTNAME_.lock().unwrap().clone()
           })).send().await.is_err() {
-              st = "".to_string();
+            //   st = "".to_string();
+            println!("current is bricked.")
           }
         }
     }
+    let key = server.api_key.clone();
+    let userdata;
+    {
 
-    let mut dat = USER_SETTINGS.write().or(Err("unable to open settings"))?;
-    (*dat).server.address = st.clone();
+        let mut dat : RwLockWriteGuard<UserSettings> = USER_SETTINGS.write().or(Err("unable to open settings"))?;
+        println!("{:?}", st);
+        (*dat).server.address = st.clone();
+        (*dat).save();
+        userdata = (*dat).clone();
+    }
+    userdata.announce_hello().await;
+    // {
+
+    OkRequest! {
+        if Client::new().post(format!("{}/device/new?name={}",st.clone(),HOSTNAME_.lock().unwrap().clone())).header("ApiKey",key).send().await.is_err() {
+            //   st = "".to_string();
+            println!("current is bricked.")
+        }
+    }
+
+    // }
 
     *SEEN.write().unwrap() = vec![];
     *SEEN_LOCAL.write().unwrap() = HashMap::new();
